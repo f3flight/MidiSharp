@@ -16,6 +16,10 @@ namespace MidiSharp.Events.Voice.Note
         internal const byte CategoryId = 0x9;
         /// <summary>The velocity of the note (0x0 to 0x7F).</summary>
         private byte m_velocity;
+        /// <summary>This auxiliary parameter can be set and updated by calling MidiSequence.CalculateOnNoteVoiceMidiEventLength(),
+        /// and reflects the amount of time in seconds this note is ringing.
+        /// Value below 0 means not set. Not set by default.</summary>
+        public float m_absLength = -1;
 
         /// <summary>Initialize the NoteOn MIDI event message.</summary>
         /// <param name="deltaTime">The amount of time before this event.</param>

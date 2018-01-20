@@ -9,6 +9,8 @@ using MidiSharp.Events.Meta;
 using MidiSharp.Events.Meta.Text;
 using MidiSharp.Events.Voice;
 using MidiSharp.Events.Voice.Note;
+using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace MidiSharp
@@ -198,6 +200,92 @@ namespace MidiSharp
         {
             Validate.NonNull("sequence", sequence);
             return sequence.SelectMany(t => t.Events).Any(e => e is LyricTextMetaMidiEvent);
+        }
+
+        /// <summary>Calculates and sets m_AbsPulse and m_AbsTime auxiliary properties of midi events in this MIDI sequence</summary>
+        public static void CalculateAbsolutePulseAndTime (this MidiSequence sequence)
+        {
+            if (sequence.Format != Format.One) {
+                throw new InvalidOperationException ("Operation not implemented for this MIDI Format, convert to or use Format.One");
+            }
+            if (sequence.DivisionType != DivisionType.TicksPerBeat) {
+                throw new InvalidOperationException ("Operation not implemented for this MIDI DivisionType, only TicksPerBeat is supported");
+            }
+
+            foreach (MidiTrack track in sequence) {
+                long absolutePulse = 0;
+                foreach (MidiEvent ev in track.Events) {
+                    absolutePulse += ev.DeltaTime;
+                    ev.m_absPulse = absolutePulse;
+                }
+            }
+
+            List<TempoMetaMidiEvent> tempoEvents = sequence.Tracks [0].Where (e => e is TempoMetaMidiEvent).Select (e => e as TempoMetaMidiEvent).ToList ();
+            foreach (MidiTrack track in sequence) {
+                float absoluteTime = 0;
+                long lastPulse = 0;
+                int tempo = 1200000; // start with default MIDI tempo of 120bpm
+                int tempoIndex = 0;
+                foreach (MidiEvent ev in track) {
+                    if (tempoEvents != null) {
+                        while (tempoIndex < tempoEvents.Count) {
+                            if (tempoEvents [tempoIndex].m_absPulse <= ev.m_absPulse) {
+                                absoluteTime += (tempoEvents [tempoIndex].m_absPulse - lastPulse) / (float)sequence.TicksPerBeatOrFrame * tempo / 1000000f;
+                                lastPulse = tempoEvents [tempoIndex].m_absPulse;
+                                tempo = tempoEvents [tempoIndex].Value;
+                                tempoIndex++;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    absoluteTime += (ev.m_absPulse - lastPulse) / (float)sequence.TicksPerBeatOrFrame * tempo / 1000000f;
+                    lastPulse = ev.m_absPulse;
+                    ev.m_absTime = absoluteTime;
+                }
+            }
+        }
+
+        /// <summary>Calculates and sets m_AbsLength auxiliary property of OnNoteVoiceMidiEvent events in this MIDI sequence.
+        /// Requires prior call of CalculateAbsolutePulseAndTime.</summary>
+        public static void CalculateOnNoteVoiceMidiEventLength (this MidiSequence sequence)
+        {
+            if (sequence.Format != Format.One) {
+                throw new InvalidOperationException ("Operation not implemented for this MIDI Format, convert to or use Format.One");
+            }
+            foreach (MidiTrack track in sequence) {
+                OnNoteVoiceMidiEvent[] ringingEvents = new OnNoteVoiceMidiEvent[128 * 16];
+                foreach (MidiEvent ev in track) {
+                    if (ev is OnNoteVoiceMidiEvent) {
+                        OnNoteVoiceMidiEvent onEvent = ev as OnNoteVoiceMidiEvent;
+                        int ringingIndex = onEvent.Note + onEvent.Channel * 16;
+                        if (onEvent.m_absTime < 0) {
+                            throw new InvalidOperationException ("This MIDI sequence has no absolute timestamps, call CalculateAbsolutePulseAndTime first");
+                        }
+                        if (ringingEvents [ringingIndex] != null) {
+                            // potentially inconsistent MIDI data, this note is already ringing. Assuming a missing note off event...
+                            ringingEvents [ringingIndex].m_absLength = onEvent.m_absTime - ringingEvents [ringingIndex].m_absTime;
+                        }
+                        if (onEvent.Velocity == 0) {
+                            // note on event actually indicating note off
+                            ringingEvents [ringingIndex] = null;
+                        } else
+                            ringingEvents [ringingIndex] = onEvent;
+                    } else if (ev is OffNoteVoiceMidiEvent) {
+                        OffNoteVoiceMidiEvent offEvent = ev as OffNoteVoiceMidiEvent;
+                        int ringingIndex = offEvent.Note + offEvent.Channel * 16;
+                        if (offEvent.m_absTime < 0) {
+                            throw new InvalidOperationException ("This MIDI sequence has no absolute timestamps, call CalculateAbsolutePulseAndTime first");
+                        }
+                        if (ringingEvents [ringingIndex] == null) {
+                            // potentially inconsistent MIDI data, this note is not ringing now. Ignoring.
+                            continue;
+                        }
+                        ringingEvents [ringingIndex].m_absLength = offEvent.m_absTime - ringingEvents [ringingIndex].m_absTime;
+                        ringingEvents [ringingIndex] = null;
+                    }
+                }
+            }
         }
     }
 }

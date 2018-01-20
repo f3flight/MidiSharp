@@ -16,6 +16,14 @@ namespace MidiSharp.Events
 	{
 		/// <summary>The amount of time before this event.</summary>
 		private long m_deltaTime;
+		/// <summary>This auxiliary parameter can be set and updated by calling MidiSequence.CalculateAbsolutePulseAndTime(),
+		/// and reflects the absolute number of pulses/ticks since the beginning of the track.
+		/// Value below 0 means not set. Not set by default.</summary>
+		public long m_absPulse = -1;
+		/// <summary>This auxiliary parameter can be set and updated by calling MidiSequence.CalculateAbsolutePulseAndTime(),
+		/// and reflects the amount of time in seconds since the beginning of the track, accounting for tempo changes.
+		/// Value below 0 means not set. Not set by default.</summary>
+		public float m_absTime = -1;
 
 		/// <summary>Initialize the event.</summary>
 		/// <param name="deltaTime">The amount of time before this event.</param>
